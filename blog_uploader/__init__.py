@@ -1,14 +1,15 @@
 import logging
 import os
 import subprocess
-from datetime import datetime, tzinfo
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Union
-from zoneinfo import ZoneInfo
 
 import lxml.etree as etree
+import pendulum
 import yaml
 from lxml.html import fragments_fromstring
+from pendulum.tz.timezone import Timezone
 
 from blog_uploader.exceptions import PostException
 from blog_uploader.image_uploaders import ImageUploader
@@ -16,7 +17,7 @@ from blog_uploader.schemas import Metadata, Post
 
 logger = logging.getLogger(__name__)
 
-LOCAL_TZ = ZoneInfo("America/New_York")
+LOCAL_TZ = pendulum.timezone("America/New_York")
 
 
 def markdown_to_fragments(file: Union[str, os.PathLike[str]]) -> list[etree.Element]:
@@ -63,17 +64,17 @@ def fragments_to_markdown(fragments: list[etree.Element]) -> str:
 
 
 def get_mtime(
-    file: Union[str, os.PathLike[str]], *, timezone: tzinfo = LOCAL_TZ
+    file: Union[str, os.PathLike[str]], *, tz: Timezone = LOCAL_TZ
 ) -> datetime:
     s = os.stat(file)
-    return datetime.fromtimestamp(s.st_mtime).astimezone(timezone)
+    return pendulum.from_timestamp(s.st_mtime, tz=tz)
 
 
 def markdown_to_doc(
     file: Union[str, os.PathLike[str]],
     *,
     image_uploader: Optional[ImageUploader] = None,
-    timezone: tzinfo = LOCAL_TZ
+    timezone: Timezone = LOCAL_TZ
 ) -> Post:
     metadata, title, fragments = process_fragments(file)
 
@@ -84,7 +85,7 @@ def markdown_to_doc(
             with open(md_path.parent / img.attrib["src"], "rb") as f:
                 img.attrib["src"] = image_uploader.upload(f)
 
-    mtime = get_mtime(file, timezone=timezone)
+    mtime = get_mtime(file, tz=timezone)
     body = fragments_to_markdown(fragments)
 
     return Post(title=title.text_content(), created=mtime, body=body, _id=metadata.id)
