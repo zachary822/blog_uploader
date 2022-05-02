@@ -1,14 +1,14 @@
 import mimetypes
 import shutil
-from typing import BinaryIO
-from pathlib import Path
 from functools import partial
+from hashlib import md5
+from pathlib import Path
+from typing import BinaryIO
 
 import gridfs
 from pymongo.database import Database
 
 from blog_uploader.image_uploaders import ImageUploader
-from hashlib import md5
 
 
 class GridFsUploader(ImageUploader):
