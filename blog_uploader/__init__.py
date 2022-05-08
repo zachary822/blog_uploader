@@ -2,6 +2,7 @@ import logging
 import os
 import subprocess
 from datetime import datetime
+from functools import singledispatch
 from pathlib import Path
 from typing import Optional, Union
 
@@ -22,7 +23,7 @@ LOCAL_TZ = pendulum.timezone("America/New_York")
 
 def markdown_to_fragments(file: Union[str, os.PathLike[str]]) -> list[etree.Element]:
     with subprocess.Popen(
-        ["pandoc", "-f", "gfm", "-t", "html"],
+        ["pandoc", "--no-highlight", "-f", "gfm", "-t", "html-auto_identifiers"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         encoding="utf8",
@@ -49,11 +50,21 @@ def process_fragments(
     return metadata, title, fragments
 
 
+@singledispatch
+def serialize_element(ele):
+    return etree.tounicode(ele)
+
+
+@serialize_element.register
+def _(ele: str):
+    return ele
+
+
 def fragments_to_markdown(fragments: list[etree.Element]) -> str:
-    body = "".join(map(etree.tounicode, fragments))
+    body = "".join(map(serialize_element, fragments))
 
     with subprocess.Popen(
-        ["pandoc", "-f", "html", "-t", "gfm"],
+        ["pandoc", "-f", "html+raw_html", "-t", "gfm"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         encoding="utf8",
