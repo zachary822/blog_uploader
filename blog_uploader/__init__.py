@@ -5,13 +5,15 @@ from datetime import datetime
 from functools import singledispatch
 from pathlib import Path
 from typing import Optional, Union
+from urllib.parse import urlparse
 
-import lxml.etree as etree
+import lxml.html as html
 import pendulum
 import yaml
-from lxml.html import fragments_fromstring
+from lxml.etree import Comment
 from pendulum.tz.timezone import Timezone
 
+from blog_uploader.embedders import codepen_iframe, replit_iframe, youtube_iframe
 from blog_uploader.exceptions import PostException
 from blog_uploader.image_uploaders import ImageUploader
 from blog_uploader.schemas import Metadata, Post
@@ -21,24 +23,30 @@ logger = logging.getLogger(__name__)
 LOCAL_TZ = pendulum.timezone("America/New_York")
 
 
-def markdown_to_fragments(file: Union[str, os.PathLike[str]]) -> list[etree.Element]:
+def markdown_to_fragments(file: Union[str, os.PathLike[str]]) -> list[html.Element]:
     with subprocess.Popen(
-        ["pandoc", "--no-highlight", "-f", "gfm", "-t", "html-auto_identifiers"],
+        [
+            "pandoc",
+            "--no-highlight",
+            "-f",
+            "gfm",
+            "-t",
+            "html5-auto_identifiers",
+        ],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         encoding="utf8",
     ) as p, open(file, "r") as f:
         output, error = p.communicate(f.read())
-
-    return fragments_fromstring(output)
+    return html.fragments_fromstring(output)
 
 
 def process_fragments(
     file: Union[str, os.PathLike[str]]
-) -> tuple[Metadata, etree.Element, list[etree.Element]]:
+) -> tuple[Metadata, html.HtmlElement, list[html.HtmlElement]]:
     fragments = markdown_to_fragments(file)
 
-    if fragments[0].tag is etree.Comment:
+    if fragments[0].tag is Comment:
         _metadata, title, *fragments = fragments
         metadata = Metadata(**(yaml.load(_metadata.text, Loader=yaml.SafeLoader) or {}))
     else:
@@ -47,12 +55,23 @@ def process_fragments(
     if title.tag != "h1":
         raise PostException("No title")
 
+    for anchor in fragments[0].xpath("//a"):
+        parse_result = urlparse(anchor.attrib["href"])
+        if parse_result.netloc == "www.youtube.com":
+            iframe = youtube_iframe(parse_result)
+        elif parse_result.netloc == "replit.com":
+            iframe = replit_iframe(parse_result)
+        elif parse_result.netloc == "codepen.io":
+            iframe = codepen_iframe(parse_result)
+        else:
+            iframe = anchor
+        anchor.getparent().replace(anchor, iframe)
     return metadata, title, fragments
 
 
 @singledispatch
 def serialize_element(ele):
-    return etree.tounicode(ele)
+    return html.tostring(ele, encoding="unicode")
 
 
 @serialize_element.register
@@ -60,11 +79,17 @@ def _(ele: str):
     return ele
 
 
-def fragments_to_markdown(fragments: list[etree.Element]) -> str:
+def fragments_to_markdown(fragments: list[html.Element]) -> str:
     body = "".join(map(serialize_element, fragments))
 
     with subprocess.Popen(
-        ["pandoc", "-f", "html+raw_html", "-t", "gfm"],
+        [
+            "pandoc",
+            "-f",
+            "html+raw_html",
+            "-t",
+            "gfm",
+        ],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         encoding="utf8",
@@ -85,7 +110,7 @@ def markdown_to_doc(
     file: Union[str, os.PathLike[str]],
     *,
     image_uploader: Optional[ImageUploader] = None,
-    timezone: Timezone = LOCAL_TZ
+    timezone: Timezone = LOCAL_TZ,
 ) -> Post:
     metadata, title, fragments = process_fragments(file)
 
