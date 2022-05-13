@@ -9,6 +9,9 @@ from urllib.parse import quote
 import boto3
 
 from blog_uploader.image_uploaders import ImageUploader
+from blog_uploader.image_uploaders.exceptions import ChecksumMismatch
+
+__all__ = ["S3Uploader"]
 
 
 class S3Uploader(ImageUploader):
@@ -26,18 +29,33 @@ class S3Uploader(ImageUploader):
         pass
 
     @staticmethod
-    def md5(file: BinaryIO) -> str:
-        m = hashlib.md5()
+    def sha256(file: BinaryIO) -> bytes:
+        t = file.tell()
+        m = hashlib.sha256()
         for chunk in iter(partial(file.read, 1024), b""):
             m.update(chunk)
-        file.seek(0)
-        return base64.b64encode(m.digest()).decode()
+        file.seek(t)
+        return m.digest()
 
-    def upload(self, file: BinaryIO, *args, **kwargs) -> str:
+    def upload(self, file: BinaryIO) -> str:
         key = Path(file.name).name
-        self.client.put_object(
-            Bucket=self.s3_bucket, Body=file, Key=key, ContentMD5=self.md5(file)
-        )
+        checksum = self.sha256(file)
+
+        try:
+            resp = self.client.get_object_attributes(
+                Bucket=self.s3_bucket, Key=key, ObjectAttributes=["Checksum"]
+            )
+            if checksum != base64.b64decode(resp["Checksum"]["ChecksumSHA256"]):
+                raise ChecksumMismatch
+        except (self.client.exceptions.NoSuchKey, ChecksumMismatch, KeyError):
+            self.client.put_object(
+                Bucket=self.s3_bucket,
+                Body=file,
+                Key=key,
+                ChecksumAlgorithm="SHA256",
+                ChecksumSHA256=base64.b64encode(checksum).decode(),
+            )
+
         return f"https://s3.amazonaws.com/{quote(self.s3_bucket)}/{quote(key)}"
 
     def remove(self, path: Union[str, Path, os.PathLike], *args, **kwargs) -> None:
