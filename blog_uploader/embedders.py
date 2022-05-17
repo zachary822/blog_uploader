@@ -1,9 +1,10 @@
 from urllib.parse import ParseResult, parse_qs, urlunparse
 
-from lxml import html as html
+import lxml.html as html
+from pandocfilters import RawInline
 
 
-def youtube_iframe(parse_result: ParseResult) -> html.HtmlElement:
+def youtube_iframe(parse_result: ParseResult) -> RawInline:
     qs = parse_qs(parse_result.query)
     iframe = html.Element("iframe")
     iframe.attrib.update(
@@ -17,10 +18,10 @@ def youtube_iframe(parse_result: ParseResult) -> html.HtmlElement:
             "allowfullscreen": None,
         }
     )
-    return iframe
+    return RawInline("html", html.tostring(iframe, encoding="unicode"))
 
 
-def replit_iframe(parse_result: ParseResult) -> html.HtmlElement:
+def replit_iframe(parse_result: ParseResult) -> RawInline:
     parse_result = parse_result._replace(query="embed=true")
     iframe = html.Element("iframe")
     iframe.attrib.update(
@@ -31,10 +32,10 @@ def replit_iframe(parse_result: ParseResult) -> html.HtmlElement:
             "src": urlunparse(parse_result),
         }
     )
-    return iframe
+    return RawInline("html", html.tostring(iframe, encoding="unicode"))
 
 
-def codepen_iframe(parse_result: ParseResult) -> html.HtmlElement:
+def codepen_iframe(parse_result: ParseResult) -> RawInline:
     parse_result = parse_result._replace(
         query="default-tab=html%2Cresult",
         path=parse_result.path.replace("/pen/", "/embed/"),
@@ -51,4 +52,4 @@ def codepen_iframe(parse_result: ParseResult) -> html.HtmlElement:
             "src": urlunparse(parse_result),
         }
     )
-    return iframe
+    return RawInline("html", html.tostring(iframe, encoding="unicode"))

@@ -17,6 +17,7 @@ PyYAML = "^6.0"
 Jinja2 = "^3.1.1"
 boto3 = "^1.21.46"
 pendulum = "^2.1.2"
+pandocfilters = "^1.5.0"
 
 [tool.poetry.dev-dependencies]
 mypy = "^0.942"

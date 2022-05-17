@@ -1,16 +1,14 @@
+import json
 import logging
 import os
 import subprocess
 from datetime import datetime
-from functools import singledispatch
 from pathlib import Path
 from typing import Optional, Union
 from urllib.parse import urlparse
 
-import lxml.html as html
 import pendulum
-import yaml
-from lxml.etree import Comment
+from pandocfilters import Image, stringify, walk
 from pendulum.tz.timezone import Timezone
 
 from blog_uploader.embedders import codepen_iframe, replit_iframe, youtube_iframe
@@ -23,70 +21,43 @@ logger = logging.getLogger(__name__)
 LOCAL_TZ = pendulum.timezone("America/New_York")
 
 
-def markdown_to_fragments(file: Union[str, os.PathLike[str]]) -> list[html.Element]:
-    with subprocess.Popen(
+def markdown_to_ast(file: Union[str, os.PathLike[str]]) -> dict:
+    with open(file, "rb") as f, subprocess.Popen(
         [
             "pandoc",
             "--no-highlight",
             "-f",
             "gfm",
             "-t",
-            "html5-auto_identifiers",
+            "json",
         ],
-        stdin=subprocess.PIPE,
+        stdin=f,
         stdout=subprocess.PIPE,
-        encoding="utf8",
-    ) as p, open(file, "r") as f:
-        output, error = p.communicate(f.read())
-    return html.fragments_fromstring(output)
+    ) as p:
+        output, error = p.communicate()
+        return json.loads(output)
 
 
-def process_fragments(
-    file: Union[str, os.PathLike[str]]
-) -> tuple[Metadata, html.HtmlElement, list[html.HtmlElement]]:
-    fragments = markdown_to_fragments(file)
+def process_doc(file: Union[str, os.PathLike[str]]) -> tuple[dict, str, dict]:
+    doc = markdown_to_ast(file)
+    meta = doc["meta"]
 
-    if fragments[0].tag is Comment:
-        _metadata, title, *fragments = fragments
-        metadata = Metadata(**(yaml.load(_metadata.text, Loader=yaml.SafeLoader) or {}))
-    else:
-        raise PostException("No id")
+    title_block = doc["blocks"][0]
 
-    if title.tag != "h1":
+    if title_block["t"] != "Header" and title_block["c"][0] != 1:
         raise PostException("No title")
 
-    for anchor in fragments[0].xpath("//a"):
-        parse_result = urlparse(anchor.attrib["href"])
-        if parse_result.netloc == "www.youtube.com":
-            iframe = youtube_iframe(parse_result)
-        elif parse_result.netloc == "replit.com":
-            iframe = replit_iframe(parse_result)
-        elif parse_result.netloc == "codepen.io":
-            iframe = codepen_iframe(parse_result)
-        else:
-            iframe = anchor
-        anchor.getparent().replace(anchor, iframe)
-    return metadata, title, fragments
+    title = stringify(title_block)
+
+    return meta, title, doc
 
 
-@singledispatch
-def serialize_element(ele):
-    return html.tostring(ele, encoding="unicode")
-
-
-@serialize_element.register
-def _(ele: str):
-    return ele
-
-
-def fragments_to_markdown(fragments: list[html.Element]) -> str:
-    body = "".join(map(serialize_element, fragments))
-
+def doc_to_markdown(doc: dict) -> str:
     with subprocess.Popen(
         [
             "pandoc",
             "-f",
-            "html+raw_html",
+            "json",
             "-t",
             "gfm",
         ],
@@ -94,7 +65,7 @@ def fragments_to_markdown(fragments: list[html.Element]) -> str:
         stdout=subprocess.PIPE,
         encoding="utf8",
     ) as p:
-        output, error = p.communicate(body)
+        output, error = p.communicate(json.dumps(doc))
 
     return output
 
@@ -106,22 +77,54 @@ def get_mtime(
     return pendulum.from_timestamp(s.st_mtime, tz=tz)
 
 
+def embed(key, value, format, meta):
+    if key == "Link":
+        parse_result = urlparse(value[2][0])
+        match parse_result.netloc:
+            case "www.youtube.com":
+                return youtube_iframe(parse_result)
+            case "replit.com":
+                return replit_iframe(parse_result)
+            case "codepen.io":
+                return codepen_iframe(parse_result)
+            case _:
+                return None
+
+
 def markdown_to_doc(
     file: Union[str, os.PathLike[str]],
     *,
     image_uploader: Optional[ImageUploader] = None,
     timezone: Timezone = LOCAL_TZ,
 ) -> Post:
-    metadata, title, fragments = process_fragments(file)
+    meta, title, doc = process_doc(file)
+
+    try:
+        metadata = Metadata(id=stringify(meta["id"]))
+    except KeyError as e:
+        raise
 
     md_path = Path(file)
 
     if image_uploader is not None:
-        for img in title.xpath("//img"):
-            with open(md_path.parent / img.attrib["src"], "rb") as f:
-                img.attrib["src"] = image_uploader.upload(f)
+
+        def _uploader(key, value, format, meta):
+            if key == "Image":
+                with open(md_path.parent / value[2][0], "rb") as f:
+                    url = image_uploader.upload(f)
+
+                return Image(*value[:2], [url, ""])
+
+        doc = walk(doc, _uploader, "", meta)
+
+    doc = walk(doc, embed, "", meta)
 
     mtime = get_mtime(file, tz=timezone)
-    body = fragments_to_markdown(fragments)
+    body = doc_to_markdown(doc)
 
-    return Post(title=title.text_content(), created=mtime, body=body, _id=metadata.id)
+    return Post(
+        title=title,
+        created=mtime,
+        body=body,
+        _id=metadata.id,
+    )

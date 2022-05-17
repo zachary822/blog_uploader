@@ -1,9 +1,10 @@
 import argparse
 from pathlib import Path
 
+from pandocfilters import walk
 from pymongo import MongoClient
 
-from blog_uploader import markdown_to_doc, markdown_to_fragments
+from blog_uploader import markdown_to_ast, markdown_to_doc
 from blog_uploader.create_post import create_post
 from blog_uploader.image_uploaders.gridfs_uploader import GridFsUploader
 from blog_uploader.schemas import Action
@@ -51,7 +52,12 @@ else:
         elif args.action == Action.delete:
             post = markdown_to_doc(args.file)
             mpath = Path(args.file)
-            fragment = markdown_to_fragments(args.file)[0]
-            for img in fragment.xpath("//img"):
-                image_client.remove(mpath.parent / img.attrib["src"])
+            doc = markdown_to_ast(args.file)[0]
+
+            def _delete_image(key, value, format, meta):
+                if key == "Image":
+                    image_client.remove(mpath.parent / value[2][0])
+
+            doc = walk(doc, _delete_image, "", doc["meta"])
+
             db.posts.delete_one({"_id": post.id})
