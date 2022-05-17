@@ -32,8 +32,11 @@ def markdown_to_ast(file: Union[str, os.PathLike[str]]) -> dict:
         ],
         stdin=f,
         stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     ) as p:
         output, error = p.communicate()
+        if p.returncode != 0:
+            raise PostException(error)
         return json.loads(output)
 
 
@@ -62,9 +65,13 @@ def doc_to_markdown(doc: dict) -> str:
         ],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         encoding="utf8",
     ) as p:
         output, error = p.communicate(json.dumps(doc))
+
+        if p.returncode != 0:
+            raise PostException(error)
 
     return output
 
