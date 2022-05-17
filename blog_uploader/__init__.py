@@ -5,13 +5,12 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Union
-from urllib.parse import urlparse
 
 import pendulum
 from pandocfilters import Image, stringify, walk
 from pendulum.tz.timezone import Timezone
 
-from blog_uploader.embedders import codepen_iframe, replit_iframe, youtube_iframe
+from blog_uploader.embedders import Embedder
 from blog_uploader.exceptions import PostException
 from blog_uploader.image_uploaders import ImageUploader
 from blog_uploader.schemas import Metadata, Post
@@ -77,20 +76,6 @@ def get_mtime(
     return pendulum.from_timestamp(s.st_mtime, tz=tz)
 
 
-def embed(key, value, format, meta):
-    if key == "Link":
-        parse_result = urlparse(value[2][0])
-        match parse_result.netloc:
-            case "www.youtube.com":
-                return youtube_iframe(parse_result)
-            case "replit.com":
-                return replit_iframe(parse_result)
-            case "codepen.io":
-                return codepen_iframe(parse_result)
-            case _:
-                return None
-
-
 def markdown_to_doc(
     file: Union[str, os.PathLike[str]],
     *,
@@ -102,7 +87,7 @@ def markdown_to_doc(
     try:
         metadata = Metadata(id=stringify(meta["id"]))
     except KeyError as e:
-        raise
+        raise PostException("no id") from e
 
     md_path = Path(file)
 
@@ -117,7 +102,7 @@ def markdown_to_doc(
 
         doc = walk(doc, _uploader, "", meta)
 
-    doc = walk(doc, embed, "", meta)
+    doc = walk(doc, Embedder(), "", meta)
 
     mtime = get_mtime(file, tz=timezone)
     body = doc_to_markdown(doc)
