@@ -52,7 +52,7 @@ else:
         elif args.action == Action.delete:
             post = markdown_to_doc(args.file)
             mpath = Path(args.file)
-            doc = markdown_to_ast(args.file)[0]
+            doc = markdown_to_ast(args.file)
 
             def _delete_image(key, value, format, meta):
                 if key == "Image":

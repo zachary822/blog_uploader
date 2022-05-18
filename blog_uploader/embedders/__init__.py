@@ -2,10 +2,17 @@ import re
 from urllib.parse import ParseResult, parse_qs, urlparse, urlunparse
 
 import lxml.html as html
+from jinja2 import Environment, PackageLoader, select_autoescape
 from pandocfilters import RawInline
 
 
 class Embedder:
+    def __init__(self):
+        self.env = Environment(
+            loader=PackageLoader("blog_uploader.embedders"),
+            autoescape=select_autoescape(),
+        )
+
     @staticmethod
     def format_domain(url) -> str:
         return re.sub(r"\.", "_", url)
@@ -23,9 +30,8 @@ class Embedder:
                 "height": "315",
                 "src": f"https://www.youtube.com/embed/{qs['v'][0]}",
                 "title": "YouTube video player",
-                "frameborder": "0",
-                "allow": "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture",
-                "allowfullscreen": None,
+                "allow": "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen",
+                "frameBorder": "0",
             }
         )
         return self.format_iframe(iframe)
@@ -37,7 +43,7 @@ class Embedder:
             {
                 "width": "100%",
                 "height": "500",
-                "frameborder": "0",
+                "frameBorder": "0",
                 "src": urlunparse(parse_result),
             }
         )
@@ -53,10 +59,9 @@ class Embedder:
             {
                 "width": "100%",
                 "height": "300",
-                "frameborder": "no",
+                "frameBorder": "0",
                 "loading": "lazy",
-                "allowtransparency": None,
-                "allowfullscreen": None,
+                "allow": "fullscreen",
                 "src": urlunparse(parse_result),
             }
         )
