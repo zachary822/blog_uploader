@@ -44,7 +44,7 @@ def process_doc(file: Union[str, os.PathLike[str]]) -> tuple[dict, str, dict]:
     doc = markdown_to_ast(file)
     meta = doc["meta"]
 
-    title_block = doc["blocks"][0]
+    title_block = doc["blocks"].pop(0)
 
     if title_block["t"] != "Header" and title_block["c"][0] != 1:
         raise PostException("No title")

@@ -2,17 +2,10 @@ import re
 from urllib.parse import ParseResult, parse_qs, urlparse, urlunparse
 
 import lxml.html as html
-from jinja2 import Environment, PackageLoader, select_autoescape
 from pandocfilters import RawInline
 
 
 class Embedder:
-    def __init__(self):
-        self.env = Environment(
-            loader=PackageLoader("blog_uploader.embedders"),
-            autoescape=select_autoescape(),
-        )
-
     @staticmethod
     def format_domain(url) -> str:
         return re.sub(r"\.", "_", url)
