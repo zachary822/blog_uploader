@@ -3,13 +3,15 @@ import logging
 import os
 import subprocess
 from datetime import datetime
-from pathlib import Path
-from typing import Optional, Union
+from functools import partial, reduce
+from typing import Callable, Optional, Union
 
+import orjson
 import pendulum
-from pandocfilters import Image, stringify, walk
+from pandocfilters import stringify, walk
 from pendulum.tz.timezone import Timezone
 
+from blog_uploader.bionic.public import Bionic
 from blog_uploader.embedders import Embedder
 from blog_uploader.exceptions import PostException
 from blog_uploader.image_uploaders import ImageUploader
@@ -37,7 +39,7 @@ def markdown_to_ast(file: Union[str, os.PathLike[str]]) -> dict:
         output, error = p.communicate()
         if p.returncode != 0:
             raise PostException(error)
-        return json.loads(output)
+        return orjson.loads(output)
 
 
 def process_doc(file: Union[str, os.PathLike[str]]) -> tuple[dict, str, dict]:
@@ -86,8 +88,8 @@ def get_mtime(
 def markdown_to_doc(
     file: Union[str, os.PathLike[str]],
     *,
-    image_uploader: Optional[ImageUploader] = None,
     timezone: Timezone = LOCAL_TZ,
+    pandoc_filters: Optional[list[Callable]] = None
 ) -> Post:
     meta, title, doc = process_doc(file)
 
@@ -96,20 +98,8 @@ def markdown_to_doc(
     except KeyError as e:
         raise PostException("no id") from e
 
-    md_path = Path(file)
-
-    if image_uploader is not None:
-
-        def _uploader(key, value, format, meta):
-            if key == "Image":
-                with open(md_path.parent / value[2][0], "rb") as f:
-                    url = image_uploader.upload(f)
-
-                return Image(*value[:2], [url, ""])
-
-        doc = walk(doc, _uploader, "", meta)
-
-    doc = walk(doc, Embedder(), "", meta)
+    if pandoc_filters is not None:
+        doc = reduce(partial(walk, format="", meta=meta), pandoc_filters, doc)
 
     mtime = get_mtime(file, tz=timezone)
     body = doc_to_markdown(doc)

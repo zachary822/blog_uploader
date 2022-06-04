@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     aws_access_key_id: Optional[SecretStr]
     aws_secret_access_key: Optional[SecretStr]
     s3_bucket: Optional[str]
+    bionic_public_api_key: Optional[SecretStr]
 
     class Config:
         env_file = ".env"

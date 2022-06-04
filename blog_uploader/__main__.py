@@ -1,11 +1,14 @@
 import argparse
 from pathlib import Path
+from typing import Callable
 
-from pandocfilters import walk
+from pandocfilters import Image, walk
 from pymongo import MongoClient
 
 from blog_uploader import markdown_to_ast, markdown_to_doc
+from blog_uploader.bionic.public import Bionic
 from blog_uploader.create_post import create_post
+from blog_uploader.embedders import Embedder
 from blog_uploader.image_uploaders.gridfs_uploader import GridFsUploader
 from blog_uploader.schemas import Action
 from blog_uploader.settings import settings
@@ -18,6 +21,7 @@ create_parser.add_argument("title")
 
 upload_parser = subparsers.add_parser(Action.upload)
 upload_parser.add_argument("-p", "--publish", action="store_true")
+upload_parser.add_argument("--bionic", action="store_true", help="use bionic reading")
 
 publish_parser = subparsers.add_parser(Action.publish)
 publish_parser.add_argument("-u", "--unpublish", action="store_true")
@@ -33,11 +37,31 @@ if args.action == Action.create:
 else:
     with MongoClient(settings.mongodb_uri) as client, GridFsUploader(
         client.blog
-    ) as image_client:
+    ) as image_client, Bionic(
+        settings.bionic_public_api_key.get_secret_value()  # type: ignore[union-attr]
+    ) as bionic:
         db = client.blog
 
         if args.action == Action.upload:
-            post = markdown_to_doc(args.file, image_uploader=image_client)
+            md_path = Path(args.file)
+
+            def _uploader(key, value, format, meta):
+                if key == "Image":
+                    with open(md_path.parent / value[2][0], "rb") as g:
+                        url = image_client.upload(g)
+
+                    return Image(*value[:2], [url, ""])
+
+            pandoc_filters: list[Callable] = [_uploader, Embedder()]
+
+            if args.bionic:
+                pandoc_filters.append(bionic)
+
+            post = markdown_to_doc(
+                args.file,
+                pandoc_filters=pandoc_filters,
+            )
+
             post.published = args.publish
             db.posts.replace_one(
                 {"_id": post.id},
