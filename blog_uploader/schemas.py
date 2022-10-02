@@ -1,9 +1,9 @@
-from datetime import datetime
 from enum import Enum
 from typing import Callable, Iterable, Optional, Union
 
 from bson.objectid import ObjectId as _ObjectId
-from pydantic import AnyHttpUrl, BaseModel, Field, FilePath
+from pendulum import DateTime
+from pydantic import AnyHttpUrl, BaseModel, Extra, Field, FilePath
 
 
 class ObjectId(_ObjectId):
@@ -27,7 +27,9 @@ class MongoModel(BaseModel):
 
 class Post(MongoModel):
     title: str
-    created: datetime
+    created: DateTime
+    updated: DateTime
+    image: Optional[AnyHttpUrl]
     body: str
     published: bool = False
 
@@ -41,6 +43,10 @@ class Image(MongoModel):
 
 class Metadata(BaseModel):
     id: ObjectId
+    image: Optional[AnyHttpUrl]
+
+    class Config:
+        extra = Extra.allow
 
 
 class Action(str, Enum):
@@ -49,5 +55,5 @@ class Action(str, Enum):
     publish = "publish"
     delete = "delete"
 
-    def __str__(self) -> str:
+    def __str__(self):
         return self.value

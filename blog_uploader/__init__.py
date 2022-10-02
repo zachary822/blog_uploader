@@ -1,10 +1,10 @@
 import json
 import logging
-import os
 import subprocess
 from datetime import datetime
 from functools import partial, reduce
-from typing import Callable, Optional, Union
+from pathlib import Path
+from typing import Callable, Optional
 
 import orjson
 import pendulum
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 LOCAL_TZ = pendulum.timezone("America/New_York")
 
 
-def markdown_to_ast(file: Union[str, os.PathLike[str]]) -> dict:
+def markdown_to_ast(file: Path) -> dict:
     with open(file, "rb") as f, subprocess.Popen(
         [
             "pandoc",
@@ -42,16 +42,30 @@ def markdown_to_ast(file: Union[str, os.PathLike[str]]) -> dict:
         return orjson.loads(output)
 
 
-def process_doc(file: Union[str, os.PathLike[str]]) -> tuple[dict, str, dict]:
+def parse_meta(meta: dict):
+    result = {}
+
+    for key, value in meta.items():
+        match value:
+            case {"t": "MetaInlines", "c": meta_inline}:
+                result[key] = stringify(meta_inline)
+            case {"t": "MetaMap", "c": meta_map}:
+                result[key] = parse_meta(meta_map)
+
+    return result
+
+
+def process_doc(file: Path) -> tuple[dict, str, dict]:
     doc = markdown_to_ast(file)
     meta = doc["meta"]
 
     title_block = doc["blocks"].pop(0)
 
-    if title_block["t"] != "Header" and title_block["c"][0] != 1:
-        raise PostException("No title")
-
-    title = stringify(title_block)
+    match title_block:
+        case {"t": "Header", "c": [1, _, _]}:
+            title = stringify(title_block)
+        case _:
+            raise PostException("No title")
 
     return meta, title, doc
 
@@ -78,15 +92,13 @@ def doc_to_markdown(doc: dict) -> str:
     return output
 
 
-def get_mtime(
-    file: Union[str, os.PathLike[str]], *, tz: Timezone = LOCAL_TZ
-) -> datetime:
-    s = os.stat(file)
+def get_mtime(file: Path, *, tz: Timezone = LOCAL_TZ) -> datetime:
+    s = file.stat()
     return pendulum.from_timestamp(s.st_mtime, tz=tz)
 
 
 def markdown_to_doc(
-    file: Union[str, os.PathLike[str]],
+    file: Path,
     *,
     timezone: Timezone = LOCAL_TZ,
     pandoc_filters: Optional[list[Callable]] = None
@@ -94,19 +106,21 @@ def markdown_to_doc(
     meta, title, doc = process_doc(file)
 
     try:
-        metadata = Metadata(id=stringify(meta["id"]))
+        metadata = Metadata(**parse_meta(meta))
     except KeyError as e:
         raise PostException("no id") from e
 
     if pandoc_filters is not None:
         doc = reduce(partial(walk, format="", meta=meta), pandoc_filters, doc)
 
-    mtime = get_mtime(file, tz=timezone)
+    file_stat = file.stat()
     body = doc_to_markdown(doc)
 
     return Post(
         title=title,
-        created=mtime,
+        created=pendulum.from_timestamp(file_stat.st_birthtime, tz=timezone),
+        updated=pendulum.from_timestamp(file_stat.st_mtime, tz=timezone),
         body=body,
+        image=metadata.image,
         _id=metadata.id,
     )

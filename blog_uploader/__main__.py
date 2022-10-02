@@ -6,7 +6,6 @@ from pandocfilters import Image, walk
 from pymongo import MongoClient
 
 from blog_uploader import markdown_to_ast, markdown_to_doc
-from blog_uploader.bionic.public import Bionic
 from blog_uploader.create_post import create_post
 from blog_uploader.embedders import Embedder
 from blog_uploader.image_uploaders.gridfs_uploader import GridFsUploader
@@ -21,14 +20,13 @@ create_parser.add_argument("title")
 
 upload_parser = subparsers.add_parser(Action.upload)
 upload_parser.add_argument("-p", "--publish", action="store_true")
-upload_parser.add_argument("--bionic", action="store_true", help="use bionic reading")
 
 publish_parser = subparsers.add_parser(Action.publish)
 publish_parser.add_argument("-u", "--unpublish", action="store_true")
 
 delete_parser = subparsers.add_parser(Action.delete)
 
-parser.add_argument("file")
+parser.add_argument("file", type=Path)
 args = parser.parse_args()
 
 if args.action == Action.create:
@@ -37,9 +35,7 @@ if args.action == Action.create:
 else:
     with MongoClient(settings.mongodb_uri) as client, GridFsUploader(
         client.blog
-    ) as image_client, Bionic(
-        settings.bionic_public_api_key.get_secret_value()  # type: ignore[union-attr]
-    ) as bionic:
+    ) as image_client:
         db = client.blog
 
         if args.action == Action.upload:
@@ -54,9 +50,6 @@ else:
 
             pandoc_filters: list[Callable] = [_uploader, Embedder()]
 
-            if args.bionic:
-                pandoc_filters.append(bionic)
-
             post = markdown_to_doc(
                 args.file,
                 pandoc_filters=pandoc_filters,
@@ -65,7 +58,7 @@ else:
             post.published = args.publish
             db.posts.replace_one(
                 {"_id": post.id},
-                post.dict(by_alias=True),
+                post.dict(by_alias=True, exclude_none=True),
                 upsert=True,
             )
         elif args.action == Action.publish:
