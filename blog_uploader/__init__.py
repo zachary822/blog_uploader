@@ -4,7 +4,7 @@ import subprocess
 from datetime import datetime
 from functools import partial, reduce
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import orjson
 import pendulum
@@ -42,17 +42,20 @@ def markdown_to_ast(file: Path) -> dict:
         return orjson.loads(output)
 
 
+def parse_token(obj: dict):
+    match obj:
+        case {"t": "MetaInlines", "c": meta_inlines}:
+            return stringify(meta_inlines)
+        case {"t": "MetaMap", "c": meta_map}:
+            return {key: parse_token(value) for key, value in meta_map.items()}
+        case {"t": "MetaList", "c": meta_list}:
+            return list(map(parse_token, meta_list))
+        case _:
+            return obj
+
+
 def parse_meta(meta: dict):
-    result = {}
-
-    for key, value in meta.items():
-        match value:
-            case {"t": "MetaInlines", "c": meta_inline}:
-                result[key] = stringify(meta_inline)
-            case {"t": "MetaMap", "c": meta_map}:
-                result[key] = parse_meta(meta_map)
-
-    return result
+    return {key: parse_token(value) for key, value in meta.items()}
 
 
 def process_doc(file: Path) -> tuple[dict, str, dict]:
@@ -121,6 +124,5 @@ def markdown_to_doc(
         created=pendulum.from_timestamp(file_stat.st_birthtime, tz=timezone),
         updated=pendulum.from_timestamp(file_stat.st_mtime, tz=timezone),
         body=body,
-        image=metadata.image,
-        _id=metadata.id,
+        **metadata.dict()
     )

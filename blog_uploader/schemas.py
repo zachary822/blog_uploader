@@ -22,7 +22,7 @@ class MongoModel(BaseModel):
     id: ObjectId = Field(alias="_id", default_factory=ObjectId)
 
     class Config:
-        allow_population_by_field_name = False
+        allow_population_by_field_name = True
 
 
 class Post(MongoModel):
@@ -32,6 +32,7 @@ class Post(MongoModel):
     image: Optional[AnyHttpUrl]
     body: str
     published: bool = False
+    tags: list[str]
 
 
 class Image(MongoModel):
@@ -44,6 +45,7 @@ class Image(MongoModel):
 class Metadata(BaseModel):
     id: ObjectId
     image: Optional[AnyHttpUrl]
+    tags: list[str] = Field(default_factory=list)
 
     class Config:
         extra = Extra.allow
