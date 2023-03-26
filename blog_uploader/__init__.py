@@ -44,12 +44,14 @@ def markdown_to_ast(file: Path) -> dict:
 
 def parse_token(obj: dict):
     match obj:
-        case {"t": "MetaInlines", "c": meta_inlines}:
+        case {"t": "MetaInlines" | "MetaBlocks", "c": meta_inlines}:
             return stringify(meta_inlines)
         case {"t": "MetaMap", "c": meta_map}:
             return {key: parse_token(value) for key, value in meta_map.items()}
         case {"t": "MetaList", "c": meta_list}:
             return list(map(parse_token, meta_list))
+        case {"t": "MetaString", "c": ""}:
+            return None
         case _:
             return obj
 
@@ -104,7 +106,7 @@ def markdown_to_doc(
     file: Path,
     *,
     timezone: Timezone = LOCAL_TZ,
-    pandoc_filters: Optional[list[Callable]] = None
+    pandoc_filters: Optional[list[Callable]] = None,
 ) -> Post:
     meta, title, doc = process_doc(file)
 
@@ -124,5 +126,5 @@ def markdown_to_doc(
         created=pendulum.from_timestamp(file_stat.st_birthtime, tz=timezone),
         updated=pendulum.from_timestamp(file_stat.st_mtime, tz=timezone),
         body=body,
-        **metadata.dict()
+        **metadata.dict(),
     )

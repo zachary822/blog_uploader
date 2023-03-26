@@ -30,6 +30,7 @@ class Post(MongoModel):
     created: DateTime
     updated: DateTime
     image: Optional[AnyHttpUrl]
+    summary: Optional[str]
     body: str
     published: bool = False
     tags: list[str]
@@ -46,6 +47,7 @@ class Metadata(BaseModel):
     id: ObjectId
     image: Optional[AnyHttpUrl]
     tags: list[str] = Field(default_factory=list)
+    summary: Optional[str]
 
     class Config:
         extra = Extra.allow
